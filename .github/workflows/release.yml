@@ -1,0 +1,86 @@
+name: release
+# Publish a GitHub release (Releases > Draft a new release > Publish) and this
+# workflow builds Windows + macOS + Linux and attaches them to it.
+# Run manually (Actions > release > Run workflow) to just get the builds as artifacts.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GOFLAGS: -mod=mod
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.24'}
+      - name: Build starwars.exe
+        env: {GOOS: windows, GOARCH: amd64, CGO_ENABLED: '0'}
+        run: go build -trimpath -ldflags "-H=windowsgui -s -w" -o starwars.exe ./cmd/starwars
+      - uses: actions/upload-artifact@v4
+        with: {name: starwars-windows, path: starwars.exe}
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.24'}
+      - name: Build Star Wars.app (universal)
+        run: |
+          set -e
+          APP="dist/Star Wars.app"
+          mkdir -p "$APP/Contents/MacOS"
+          CGO_ENABLED=1 GOARCH=arm64 go build -ldflags "-s -w" -o dist/sw-arm64 ./cmd/starwars
+          CGO_ENABLED=1 GOARCH=amd64 go build -ldflags "-s -w" -o dist/sw-amd64 ./cmd/starwars
+          lipo -create -output "$APP/Contents/MacOS/starwars" dist/sw-arm64 dist/sw-amd64
+          cat > "$APP/Contents/Info.plist" <<'PL'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleExecutable</key><string>starwars</string>
+          <key>CFBundleIdentifier</key><string>local.starwars</string>
+          <key>CFBundleName</key><string>Star Wars</string>
+          <key>CFBundlePackageType</key><string>APPL</string>
+          <key>CFBundleVersion</key><string>1</string>
+          <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PL
+          codesign --force --deep -s - "$APP"
+          cd dist && zip -qry ../StarWars-mac.zip "Star Wars.app"
+      - uses: actions/upload-artifact@v4
+        with: {name: starwars-mac, path: StarWars-mac.zip}
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.24'}
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev
+      - name: Build starwars (linux/amd64, SteamOS compatible)
+        env: {GOOS: linux, GOARCH: amd64, CGO_ENABLED: '1'}
+        run: |
+          go build -trimpath -ldflags "-s -w" -o starwars ./cmd/starwars
+          tar -czf StarWars-linux.tar.gz starwars
+      - uses: actions/upload-artifact@v4
+        with: {name: starwars-linux, path: StarWars-linux.tar.gz}
+
+  publish:
+    if: github.event_name == 'release'
+    needs: [windows, mac, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {path: out, merge-multiple: true}
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" out/starwars.exe out/StarWars-mac.zip out/StarWars-linux.tar.gz --clobber --repo "${{ github.repository }}"

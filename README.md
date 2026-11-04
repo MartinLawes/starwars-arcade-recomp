@@ -32,11 +32,38 @@ Verified set (all 13 present and good):
 | 136021-109.4b | 256 | 82fc3eb2 | AVG state PROM (his file is named 136021-105.1l) |
 | 136021-110..113 | 1K each | see assets.go | mathbox microcode |
 
+## Running
+
+Put `starwars.zip` next to `starwars.exe` (or in a `roms` folder, the working directory, your home folder, or
+pass its path as the first argument). High scores and settings (the game's NVRAM) are saved in your user
+config folder under `starwars/`.
+
+## Controls
+
+| Input | Action |
+|---|---|
+| Mouse position | Yoke - the gunsight goes where you point |
+| Arrows / WASD | Yoke (springs back to centre) |
+| Left click / Z / Space / Ctrl | Fire (also starts a game after a coin) |
+| Right click / X / Alt | Fire 2 |
+| C, V / middle click | Thumb buttons |
+| 5 or 6 | Coin |
+| I | Invert yoke Y (flight-stick style) |
+| F2 | Look: vector monitor / clean lines |
+| F3 | FPS overlay |
+| F11 / Alt+Enter | Full screen |
+| F1 (hold) | Test switch (service menu) |
+| Esc | Quit |
+
+**Gamepad:** left stick or D-pad = yoke, A / right trigger = fire, B / left trigger = fire 2, X / Y = thumb
+buttons, Start = fire/start, Select = coin, hold Select + Start for a second to quit.
+
 ## Status
 
 - Main board runs: 6809, mathbox (matrix processor, divider, real 23-bit LFSR PRNG), AVG, NVRAM, inputs.
 - Attract mode renders correctly headless: high score table, 3D STAR WARS logo, opening crawl, starfield.
-- Not yet: sound board (6809 + RIOT + 4 POKEY + TMS5220), Ebitengine window + GPU renderer, controls, releases.
+- Window + GPU vector renderer (internal/vecrender/gpu), mouse / keyboard / gamepad yoke, NVRAM saving.
+- Not yet: sound board (6809 + RIOT + 4 POKEY + TMS5220) - builds are silent for now.
 
 ## Tools so far
 
@@ -49,6 +76,11 @@ go run ./cmd/dis   path/to/starwars.zip main 8000 10000 # disassembler (main|sou
 `listings/` (gitignored - it is ROM-derived) holds linear disassemblies of main $8000-$ffff, both $6000 bank
 pages, and sound $4000-$7fff.
 
+## Releases
+
+Publishing a GitHub release runs `.github/workflows/release.yml`: `starwars.exe` (Windows), `StarWars-linux.tar.gz`
+(Linux x86_64, Steam Deck / SteamOS) and `StarWars-mac.zip`. Actions > release > Run workflow gives the same builds as artifacts.
+
 ## Layout
 
 | Path | Purpose |
@@ -59,6 +91,8 @@ pages, and sound $4000-$7fff.
 | `internal/avg` | Vector generator - outputs beam strokes, not pixels |
 | `internal/board` | Main board wiring |
 | `internal/vecrender` | Vector monitor renderer (soft.go = CPU reference / spec for the GPU shaders) |
+| `internal/vecrender/gpu` | Real-time Ebitengine renderer (Kage shaders) |
+| `cmd/starwars` | The game |
 | `cmd/shot` | Headless PNG snapshots |
 | `cmd/boot` | Boot probe with stubbed hardware |
 | `cmd/dis` | Disassembler |
