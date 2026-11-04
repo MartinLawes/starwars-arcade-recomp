@@ -1,4 +1,4 @@
-# Star Wars (Atari, 1983) - native port, prep stage
+# Star Wars (Atari, 1983) - native port
 
 Repo: darkuni/starwars-arcade-recomp
 
@@ -32,10 +32,17 @@ Verified set (all 13 present and good):
 | 136021-109.4b | 256 | 82fc3eb2 | AVG state PROM (his file is named 136021-105.1l) |
 | 136021-110..113 | 1K each | see assets.go | mathbox microcode |
 
+## Status
+
+- Main board runs: 6809, mathbox (matrix processor, divider, real 23-bit LFSR PRNG), AVG, NVRAM, inputs.
+- Attract mode renders correctly headless: high score table, 3D STAR WARS logo, opening crawl, starfield.
+- Not yet: sound board (6809 + RIOT + 4 POKEY + TMS5220), Ebitengine window + GPU renderer, controls, releases.
+
 ## Tools so far
 
 ```
-go run ./cmd/boot  path/to/starwars.zip 600            # headless boot probe, logs I/O traffic
+go run ./cmd/shot  path/to/starwars.zip out 12 28      # headless vector-rendered PNGs at those seconds (-w -h -clean)
+go run ./cmd/boot  path/to/starwars.zip 600            # boot probe on stubbed devices, logs I/O traffic
 go run ./cmd/dis   path/to/starwars.zip main 8000 10000 # disassembler (main|sound, start, end, [bank 0|1])
 ```
 
@@ -48,6 +55,11 @@ pages, and sound $4000-$7fff.
 |---|---|
 | `internal/m6809` | 6809 core + disassembler, carried over from Zoo Keeper |
 | `internal/assets` | CRC-matched ROM loader |
+| `internal/mathbox` | Matrix processor, divider, PRNG |
+| `internal/avg` | Vector generator - outputs beam strokes, not pixels |
+| `internal/board` | Main board wiring |
+| `internal/vecrender` | Vector monitor renderer (soft.go = CPU reference / spec for the GPU shaders) |
+| `cmd/shot` | Headless PNG snapshots |
 | `cmd/boot` | Boot probe with stubbed hardware |
 | `cmd/dis` | Disassembler |
 | `docs/HARDWARE.md` | Memory maps, clocks, interrupts, device list, build order |
