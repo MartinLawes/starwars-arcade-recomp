@@ -60,7 +60,7 @@ var layout = []part{
 
 // Alternates accepted in place of a revision-2 part (same slot).
 var alternates = map[uint32]string{
-	0xe75ff867: "136021-214.1f", // 136021-114 (rev 1 / original)
+	0xe75ff867: "136021-214.1f",  // 136021-114 (rev 1 / original)
 	0x3fde9ccb: "136021-203.1jk", // 136021-103 (original)
 }
 
