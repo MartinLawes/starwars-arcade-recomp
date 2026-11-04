@@ -16,20 +16,21 @@ import (
 // Settings are the user-adjustable options, saved as settings.json in the
 // user config folder. Levels are percentages of the shipped look.
 type Settings struct {
-	Brightness int  `json:"brightness"` // beam energy, 10..200
-	Glow       int  `json:"glow"`       // bloom halo, 0 (off)..200
-	Trails     int  `json:"trails"`     // phosphor persistence, 0 (off)..300
-	Dwell      int  `json:"dwell"`      // extra brightness at line ends and dots, 0 (off)..200
-	Width      int  `json:"width"`      // beam width, 50..200
-	Volume     int  `json:"volume"`     // master, 0 (off)..200
-	Speech     int  `json:"speech"`     // TMS5220 voice, 0 (off)..200
-	Effects    int  `json:"effects"`    // POKEY effects and music, 0 (off)..200
+	Brightness int  `json:"brightness"`  // beam energy, 10..200
+	Glow       int  `json:"glow"`        // bloom halo, 0 (off)..200
+	Trails     int  `json:"trails"`      // phosphor persistence, 0 (off)..300
+	Dwell      int  `json:"dwell"`       // extra brightness at line ends and dots, 0 (off)..200
+	Width      int  `json:"width"`       // beam width, 50..200
+	Volume     int  `json:"volume"`      // master, 0 (off)..200
+	Speech     int  `json:"speech"`      // TMS5220 voice, 0 (off)..200
+	Effects    int  `json:"effects"`     // POKEY effects and music, 0 (off)..200
+	MouseSpeed int  `json:"mouse_speed"` // mouse yoke sensitivity, 20..300
 	InvertY    bool `json:"invert_y"`
 	Fullscreen bool `json:"fullscreen"`
 }
 
 func defaultSettings() Settings {
-	return Settings{Brightness: 100, Glow: 100, Trails: 100, Dwell: 100, Width: 100, Volume: 100, Speech: 100, Effects: 100}
+	return Settings{Brightness: 100, Glow: 100, Trails: 100, Dwell: 100, Width: 100, Volume: 100, Speech: 100, Effects: 100, MouseSpeed: 100}
 }
 
 // cleanSettings is the sharp-lines look: no glow, no trails, light dwell.
@@ -77,6 +78,7 @@ func (s *Settings) clamp() {
 	c(&s.Volume, 0, 200)
 	c(&s.Speech, 0, 200)
 	c(&s.Effects, 0, 200)
+	c(&s.MouseSpeed, 20, 300)
 }
 
 func settingsPath() string {
@@ -90,6 +92,7 @@ func settingsPath() string {
 func loadSettings() Settings {
 	s := defaultSettings()
 	s.Volume, s.Speech, s.Effects = -1, -1, -1 // detect files saved before sound existed
+	s.MouseSpeed = -1
 	if p := settingsPath(); p != "" {
 		if b, err := os.ReadFile(p); err == nil {
 			json.Unmarshal(b, &s)
@@ -98,6 +101,9 @@ func loadSettings() Settings {
 	d := defaultSettings()
 	if s.Volume < 0 {
 		s.Volume, s.Speech, s.Effects = d.Volume, d.Speech, d.Effects
+	}
+	if s.MouseSpeed < 0 {
+		s.MouseSpeed = d.MouseSpeed
 	}
 	s.clamp()
 	return s
@@ -153,12 +159,13 @@ func (g *game) buildMenu() {
 		{name: "VOLUME", kind: kLevel, val: &s.Volume, min: 0, max: 200},
 		{name: "SPEECH", kind: kLevel, val: &s.Speech, min: 0, max: 200},
 		{name: "EFFECTS AND MUSIC", kind: kLevel, val: &s.Effects, min: 0, max: 200},
+		{name: "MOUSE SPEED", kind: kLevel, val: &s.MouseSpeed, min: 20, max: 300},
 		{name: "INVERT Y", kind: kToggle, on: &s.InvertY},
 		{name: "FULL SCREEN", kind: kToggle, on: &s.Fullscreen},
 		{name: "RESET TO DEFAULTS", kind: kAction, act: func(g *game) {
-			inv, fs := g.set.InvertY, g.set.Fullscreen
+			inv, fs, ms := g.set.InvertY, g.set.Fullscreen, g.set.MouseSpeed
 			g.set = defaultSettings()
-			g.set.InvertY, g.set.Fullscreen = inv, fs
+			g.set.InvertY, g.set.Fullscreen, g.set.MouseSpeed = inv, fs, ms
 		}},
 		{name: "QUIT", kind: kAction, act: func(g *game) { g.quit = true }},
 	}
@@ -173,7 +180,7 @@ func (g *game) cycleLook() {
 		g.set = defaultSettings()
 	}
 	g.set.Brightness, g.set.InvertY, g.set.Fullscreen = keep.Brightness, keep.InvertY, keep.Fullscreen
-	g.set.Volume, g.set.Speech, g.set.Effects = keep.Volume, keep.Speech, keep.Effects
+	g.set.Volume, g.set.Speech, g.set.Effects, g.set.MouseSpeed = keep.Volume, keep.Speech, keep.Effects, keep.MouseSpeed
 }
 
 // applySettings pushes settings into the renderer and window, and saves.

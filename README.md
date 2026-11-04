@@ -42,7 +42,7 @@ config folder under `starwars/`.
 
 | Input | Action |
 |---|---|
-| Mouse position | Yoke - the gunsight goes where you point |
+| Mouse | Yoke (captured while playing; the yoke holds where you leave it; speed in the menu) |
 | Arrows / WASD | Yoke (springs back to centre) |
 | Left click / Z / Space / Ctrl | Fire (also starts a game after a coin) |
 | Right click / X / Alt | Fire 2 |

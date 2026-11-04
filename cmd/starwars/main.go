@@ -43,6 +43,7 @@ type game struct {
 	lastMX   int
 	lastMY   int
 	mouseOn  bool
+	captured bool
 
 	audio   *audioOut
 	samples []float32
@@ -147,6 +148,20 @@ func onOff(b bool) string {
 	return "OFF"
 }
 
+// setCapture captures (hides and frees) the mouse while playing.
+func (g *game) setCapture(on bool) {
+	if on == g.captured {
+		return
+	}
+	g.captured = on
+	if on {
+		ebiten.SetCursorMode(ebiten.CursorModeCaptured)
+	} else {
+		ebiten.SetCursorMode(ebiten.CursorModeVisible)
+	}
+	g.lastMX, g.lastMY = ebiten.CursorPosition()
+}
+
 func (g *game) Update() error {
 	if g.quit {
 		return ebiten.Termination
@@ -172,6 +187,7 @@ func (g *game) Update() error {
 
 	// Settings menu: the game is paused while it is open.
 	if g.menu.open {
+		g.setCapture(false)
 		g.menuInput(ps)
 		return nil
 	}
@@ -196,21 +212,23 @@ func (g *game) Update() error {
 	}
 	in := &g.b.In
 
-	// Yoke: gamepad stick, else mouse over the tube, else arrow keys.
+	// The mouse is captured while playing (no desktop pointer over the game's
+	// own gunsight); its movement pushes a virtual yoke that holds position
+	// like the real one. The menu or losing focus releases it.
+	g.setCapture(ebiten.IsFocused())
 	mx, my := ebiten.CursorPosition()
-	if mx != g.lastMX || my != g.lastMY {
+	dx, dy := mx-g.lastMX, my-g.lastMY
+	g.lastMX, g.lastMY = mx, my
+	if g.captured && (dx != 0 || dy != 0) {
 		g.mouseOn = true
-		g.lastMX, g.lastMY = mx, my
+		// Full yoke travel (centre to edge) for ~250 px of movement at 100%.
+		k := float64(g.set.MouseSpeed) / 100 / 250
+		g.yx = clamp(g.yx+float64(dx)*k, -1, 1)
+		g.yy = clamp(g.yy+float64(dy)*k, -1, 1)
 	}
-	switch {
-	case ps.stickActive:
+	if ps.stickActive {
 		g.mouseOn = false
 		g.yx, g.yy = ps.sx, ps.sy
-	case g.mouseOn:
-		w, h := ebiten.WindowSize()
-		x, y, gw, gh := gameRect(w, h)
-		g.yx = clamp((float64(mx-x)/float64(gw))*2-1, -1, 1)
-		g.yy = clamp((float64(my-y)/float64(gh))*2-1, -1, 1)
 	}
 	kx, ky := 0.0, 0.0
 	if ebiten.IsKeyPressed(ebiten.KeyLeft) || ebiten.IsKeyPressed(ebiten.KeyA) {
@@ -240,7 +258,7 @@ func (g *game) Update() error {
 	in.YokeX = uint8(clamp(128+g.yx*127, 0, 255))
 	in.YokeY = uint8(clamp(128-yy*127, 0, 255))
 
-	mb := func(b ebiten.MouseButton) bool { return ebiten.IsMouseButtonPressed(b) }
+	mb := func(b ebiten.MouseButton) bool { return g.captured && ebiten.IsMouseButtonPressed(b) }
 	k := ebiten.IsKeyPressed
 	in.Fire1 = k(ebiten.KeyZ) || k(ebiten.KeySpace) || k(ebiten.KeyControlLeft) || mb(ebiten.MouseButtonLeft) || ps.fire1 || ps.start
 	in.Fire2 = k(ebiten.KeyX) || k(ebiten.KeyAltLeft) || mb(ebiten.MouseButtonRight) || ps.fire2
