@@ -6,12 +6,29 @@ import (
 	"time"
 )
 
-// Producer: 800 samples (non-zero) every 1/60 s, like the game loop.
-// Consumer: pulls chunks in real time like a sound card. No audio played
-// should be silence once the stream has started.
+// Read is called with Ebitengine's audio lock held: it must never block.
+func TestAudioReadNeverBlocks(t *testing.T) {
+	a := &audioOut{vol: 1}
+	buf := make([]byte, 4096*8)
+	for _, fill := range []int{0, 100, audioPrime, 48000} {
+		a.clear()
+		a.push(make([]float32, fill))
+		t0 := time.Now()
+		for i := 0; i < 20; i++ {
+			a.Read(buf)
+		}
+		if d := time.Since(t0); d > 20*time.Millisecond {
+			t.Errorf("queue %d: 20 reads took %v", fill, d)
+		}
+	}
+}
+
+// Producer: 800 samples every 1/60 s, like the game loop. Consumer: a sound
+// card pulling chunks in real time and keeping ~40 ms buffered. Once primed,
+// nothing played may be silence.
 func TestAudioStreamHasNoGaps(t *testing.T) {
-	for _, chunk := range []int{256, 1024, 4096} {
-		a := &audioOut{vol: 1, notify: make(chan struct{}, 1)}
+	for _, chunk := range []int{256, 1024, 1920} {
+		a := &audioOut{vol: 1}
 		stop := make(chan struct{})
 		go func() {
 			s := make([]float32, 800)
@@ -31,25 +48,26 @@ func TestAudioStreamHasNoGaps(t *testing.T) {
 		}()
 		buf := make([]byte, chunk*8)
 		start := time.Now()
-		played, silent := 0, 0
-		time.Sleep(30 * time.Millisecond)
+		played, silentAfterStart := 0, 0
+		started := false
 		for time.Since(start) < 1500*time.Millisecond {
 			n, _ := a.Read(buf)
 			for i := 0; i < n/8; i++ {
 				v := math.Float32frombits(uint32(buf[i*8]) | uint32(buf[i*8+1])<<8 | uint32(buf[i*8+2])<<16 | uint32(buf[i*8+3])<<24)
-				if v == 0 {
-					silent++
+				if v != 0 {
+					started = true
+				} else if started {
+					silentAfterStart++
 				}
 				played++
 			}
-			// sound card consumes in real time
 			due := start.Add(time.Duration(played) * time.Second / 48000)
-			time.Sleep(time.Until(due) - 40*time.Millisecond) // keep ~40 ms buffered, like a device
+			time.Sleep(time.Until(due) - 40*time.Millisecond)
 		}
 		close(stop)
-		t.Logf("chunk %d: played %d samples, silent %d", chunk, played, silent)
-		if silent > 0 {
-			t.Errorf("chunk %d: %d silent samples inserted", chunk, silent)
+		t.Logf("chunk %d: played %d samples, silent after start %d", chunk, played, silentAfterStart)
+		if silentAfterStart > 0 {
+			t.Errorf("chunk %d: %d silent samples after playback started", chunk, silentAfterStart)
 		}
 	}
 }

@@ -13,29 +13,30 @@ import (
 )
 
 // audioOut streams the sound board's mono output to Ebitengine as float32
-// stereo. The emulation pushes samples every tick (60 Hz); the audio thread
-// pulls. Read waits for real samples rather than inventing silence, so the
-// player can't run ahead of the emulation; it only pads with silence when the
-// game is genuinely not producing sound (paused, menu open, a stall).
+// stereo. The emulation pushes samples every tick (60 Hz, ~800 samples); the
+// audio thread pulls. Read must never block: Ebitengine holds its audio lock
+// while calling it, and the game loop needs that lock every frame.
+//
+// To ride out the 60 Hz bursts, real samples are only served once a cushion
+// (audioPrime) has built up; if the queue ever runs dry the reader goes back
+// to priming instead of trickling out gaps.
 type audioOut struct {
 	mu     sync.Mutex
 	buf    []float32 // mono samples waiting to be played
 	vol    float32
-	notify chan struct{}
+	primed bool
 	player *audio.Player
 }
 
 const (
-	// If more than this is queued (emulation and sound card clocks drift
-	// apart), trim back to audioTrimTo. Generous so it practically never fires.
-	audioMaxQueue = sound.SampleRate / 4  // 250 ms
-	audioTrimTo   = sound.SampleRate / 10 // 100 ms
-	// How long Read waits for the emulation before padding with silence.
-	audioWait = 60 * time.Millisecond
+	audioPrime    = sound.SampleRate / 30  // ~33 ms (two ticks) before playing
+	audioMaxQueue = sound.SampleRate / 4   // clocks drifting apart: trim at 250 ms...
+	audioTrimTo   = sound.SampleRate / 12  // ...back to ~83 ms
+	audioSilence  = sound.SampleRate / 200 // 5 ms of silence per read while priming
 )
 
 func newAudio() *audioOut {
-	a := &audioOut{vol: 1, notify: make(chan struct{}, 1)}
+	a := &audioOut{vol: 1}
 	if os.Getenv("STARWARS_NOAUDIO") != "" {
 		return a // silent (no audio device needed)
 	}
@@ -44,7 +45,7 @@ func newAudio() *audioOut {
 	if err != nil {
 		return a
 	}
-	p.SetBufferSize(60 * time.Millisecond)
+	p.SetBufferSize(40 * time.Millisecond)
 	p.Play()
 	a.player = p
 	return a
@@ -62,51 +63,33 @@ func (a *audioOut) push(s []float32) {
 		a.buf = append(a.buf[:0], a.buf[drop:]...)
 	}
 	a.mu.Unlock()
-	select {
-	case a.notify <- struct{}{}:
-	default:
-	}
 }
 
-// Read implements io.Reader for the player: float32 LE stereo.
+// Read implements io.Reader for the player: float32 LE stereo. Never blocks.
 func (a *audioOut) Read(p []byte) (int, error) {
 	frames := len(p) / 8
 	if frames == 0 {
 		return 0, nil
 	}
-	deadline := time.Now().Add(audioWait)
-	for {
-		a.mu.Lock()
-		have := len(a.buf)
-		a.mu.Unlock()
-		if have > 0 {
-			break
-		}
-		left := time.Until(deadline)
-		if left <= 0 {
-			break
-		}
-		select {
-		case <-a.notify:
-		case <-time.After(left):
-		}
-	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	n := frames
-	if n > len(a.buf) {
-		n = len(a.buf)
+	if !a.primed && len(a.buf) >= audioPrime {
+		a.primed = true
 	}
-	if n == 0 {
-		// Nothing coming (paused / stalled): a short stretch of silence.
-		n = frames
-		if n > sound.SampleRate/100 {
-			n = sound.SampleRate / 100
+	if !a.primed || len(a.buf) == 0 {
+		a.primed = false
+		n := frames
+		if n > audioSilence {
+			n = audioSilence
 		}
 		for i := 0; i < n; i++ {
 			binary.LittleEndian.PutUint64(p[i*8:], 0)
 		}
 		return n * 8, nil
+	}
+	n := frames
+	if n > len(a.buf) {
+		n = len(a.buf)
 	}
 	vol := a.vol
 	for i := 0; i < n; i++ {
@@ -133,5 +116,6 @@ func (a *audioOut) setVolume(v float32) {
 func (a *audioOut) clear() {
 	a.mu.Lock()
 	a.buf = a.buf[:0]
+	a.primed = false
 	a.mu.Unlock()
 }
