@@ -16,24 +16,26 @@ import (
 	"starwars/internal/assets"
 	"starwars/internal/avg"
 	"starwars/internal/board"
-	"starwars/internal/vecrender"
 	"starwars/internal/vecrender/gpu"
 )
 
 const tps = 60
 
 type game struct {
-	b       *board.Board
-	gpu     *gpu.GPU
-	looks   []vecrender.Params
-	look    int
-	lookMsg int
+	b   *board.Board
+	gpu *gpu.GPU
+	set Settings
+
+	menu      menu
+	toast     string
+	toastTime int
 
 	list     []avg.Point
 	listSeq  int
 	drawnSeq int
 	segs     []avg.Segment
-	strokes  []gpu.Stroke
+	strokes  []gpu.Stroke // game picture, tube pixels
+	frame    []gpu.Stroke // what is drawn this frame (game + overlays)
 
 	pad      padTracker
 	coinHold int
@@ -41,9 +43,9 @@ type game struct {
 	lastMX   int
 	lastMY   int
 	mouseOn  bool
-	invertY  bool
-	showFPS  bool
-	ticks    int
+
+	showFPS bool
+	ticks   int
 
 	nvPath  string
 	nvTimer int
@@ -68,7 +70,7 @@ func romSearch() []string {
 }
 
 func main() {
-	g := &game{looks: []vecrender.Params{vecrender.Defaults(), vecrender.Clean()}}
+	g := &game{set: loadSettings()}
 	rom, err := assets.Load(romSearch()...)
 	if err != nil {
 		var me *assets.MissingError
@@ -94,12 +96,14 @@ func main() {
 		}
 		g.b.Reset()
 	}
-	if g.gpu, err = gpu.New(g.looks[0]); err != nil {
+	if g.gpu, err = gpu.New(g.set.Params()); err != nil {
 		panic(err)
 	}
+	g.buildMenu()
 	ebiten.SetWindowTitle("Star Wars")
-	ebiten.SetWindowSize(winW(), winH())
+	ebiten.SetWindowSize(winSize())
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	ebiten.SetFullscreen(g.set.Fullscreen)
 	ebiten.SetTPS(tps)
 	if err := ebiten.RunGame(g); err != nil && err != ebiten.Termination {
 		panic(err)
@@ -126,41 +130,67 @@ func gameRect(w, h int) (x, y, gw, gh int) {
 
 func clamp(v, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, v)) }
 
+func (g *game) say(s string) {
+	g.toast = s
+	g.toastTime = tps * 2
+}
+
+func onOff(b bool) string {
+	if b {
+		return "ON"
+	}
+	return "OFF"
+}
+
 func (g *game) Update() error {
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || g.quit {
+	if g.quit {
 		return ebiten.Termination
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF11) || (inpututil.IsKeyJustPressed(ebiten.KeyEnter) && ebiten.IsKeyPressed(ebiten.KeyAlt)) {
-		ebiten.SetFullscreen(!ebiten.IsFullscreen())
+	g.ticks++
+	if g.toastTime > 0 {
+		g.toastTime--
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF2) {
-		g.look = (g.look + 1) % len(g.looks)
-		g.gpu.P = g.looks[g.look]
-		g.lookMsg = tps * 2
+	if inpututil.IsKeyJustPressed(ebiten.KeyF11) || (inpututil.IsKeyJustPressed(ebiten.KeyEnter) && ebiten.IsKeyPressed(ebiten.KeyAlt)) {
+		g.set.Fullscreen = !g.set.Fullscreen
+		g.applySettings()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
 		g.showFPS = !g.showFPS
 	}
-	g.ticks++
 	if os.Getenv("STARWARS_DEBUG") != "" && g.ticks%120 == 0 && g.b != nil {
 		fmt.Printf("tick %d  game time %.1fs  TPS %.1f  FPS %.1f  lists %d\n", g.ticks, float64(g.b.CPU.Cycles)/board.CPUHz, ebiten.ActualTPS(), ebiten.ActualFPS(), g.b.AVG.Lists)
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyI) {
-		g.invertY = !g.invertY
-		g.lookMsg = tps * 2
-	}
-	if g.b == nil {
-		return nil
-	}
-	in := &g.b.In
 	ps := g.pad.poll()
 	if ps.quit {
 		g.quit = true
 	}
 
+	// Settings menu: the game is paused while it is open.
+	if g.menu.open {
+		g.menuInput(ps)
+		return nil
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyTab) || ps.menuEdge {
+		g.menu.open = true
+		g.menu.sel = 0
+		return nil
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF2) {
+		g.cycleLook()
+		g.applySettings()
+		g.say("LOOK: " + g.set.look())
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyI) {
+		g.set.InvertY = !g.set.InvertY
+		g.applySettings()
+		g.say("INVERT Y: " + onOff(g.set.InvertY))
+	}
+	if g.b == nil {
+		return nil
+	}
+	in := &g.b.In
+
 	// Yoke: gamepad stick, else mouse over the tube, else arrow keys.
-	sw, sh := ebiten.WindowSize()
-	_ = sh
 	mx, my := ebiten.CursorPosition()
 	if mx != g.lastMX || my != g.lastMY {
 		g.mouseOn = true
@@ -172,7 +202,6 @@ func (g *game) Update() error {
 		g.yx, g.yy = ps.sx, ps.sy
 	case g.mouseOn:
 		w, h := ebiten.WindowSize()
-		_ = sw
 		x, y, gw, gh := gameRect(w, h)
 		g.yx = clamp((float64(mx-x)/float64(gw))*2-1, -1, 1)
 		g.yy = clamp((float64(my-y)/float64(gh))*2-1, -1, 1)
@@ -199,7 +228,7 @@ func (g *game) Update() error {
 		g.yy *= 0.85
 	}
 	yy := g.yy
-	if g.invertY {
+	if g.set.InvertY {
 		yy = -yy
 	}
 	in.YokeX = uint8(clamp(128+g.yx*127, 0, 255))
@@ -230,9 +259,6 @@ func (g *game) Update() error {
 			g.nvTimer = 0
 		}
 	}
-	if g.lookMsg > 0 {
-		g.lookMsg--
-	}
 	return nil
 }
 
@@ -243,29 +269,47 @@ func (g *game) Draw(screen *ebiten.Image) {
 	}
 	w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
 	x, y, gw, gh := gameRect(w, h)
+	fgw, fgh := float32(gw), float32(gh)
 	newFrame := g.listSeq != g.drawnSeq
 	if newFrame {
 		g.drawnSeq = g.listSeq
 		g.segs = avg.Segments(g.list, g.segs)
 		g.strokes = g.strokes[:0]
-		sx, sy := float32(gw)/avg.Width, float32(gh)/avg.Height
+		sx, sy := fgw/avg.Width, fgh/avg.Height
 		for _, s := range g.segs {
 			g.strokes = append(g.strokes, gpu.Stroke{
 				X0: s.X0 * sx, Y0: s.Y0 * sy, X1: s.X1 * sx, Y1: s.Y1 * sy, R: s.R, G: s.G, B: s.B,
 			})
 		}
 	}
-	g.gpu.Draw(screen, float64(x), float64(y), gw, gh, g.strokes, newFrame)
+	overlay := g.menu.open || g.toastTime > 0
+	if !overlay {
+		g.gpu.Draw(screen, float64(x), float64(y), gw, gh, g.strokes, newFrame)
+	} else {
+		// Overlays are redrawn every host frame; trails are suspended so the
+		// static picture doesn't pile up.
+		g.frame = g.frame[:0]
+		dim := float32(1)
+		if g.menu.open {
+			dim = 0.15 // paused game behind the menu (still shows the brightness being set)
+		}
+		for _, s := range g.strokes {
+			s.R, s.G, s.B = s.R*dim, s.G*dim, s.B*dim
+			g.frame = append(g.frame, s)
+		}
+		if g.menu.open {
+			g.frame = g.menuStrokes(g.frame, fgw, fgh)
+		} else {
+			th := fgh / 40
+			g.frame = vecText(g.frame, g.toast, (fgw-textWidth(g.toast, th))/2, fgh*0.12, th, 1, 0.95, 0.1)
+		}
+		p := g.gpu.P
+		g.gpu.P.Persistence = 0
+		g.gpu.Draw(screen, float64(x), float64(y), gw, gh, g.frame, true)
+		g.gpu.P = p
+	}
 	if g.showFPS {
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("FPS %.0f  TPS %.0f  strokes %d", ebiten.ActualFPS(), ebiten.ActualTPS(), len(g.strokes)), x+10, y+gh-20)
-	}
-	if g.lookMsg > 0 {
-		names := []string{"vector monitor", "clean lines"}
-		inv := "off"
-		if g.invertY {
-			inv = "on"
-		}
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("look: %s (F2)   invert Y: %s (I)", names[g.look], inv), x+10, y+10)
 	}
 }
 
@@ -275,8 +319,6 @@ func (g *game) Layout(ow, oh int) (int, int) {
 }
 
 // Window size, overridable for testing with STARWARS_WIN=WxH.
-func winW() int { w, _ := winSize(); return w }
-func winH() int { _, h := winSize(); return h }
 func winSize() (int, int) {
 	var w, h int
 	if _, err := fmt.Sscanf(os.Getenv("STARWARS_WIN"), "%dx%d", &w, &h); err == nil && w > 0 && h > 0 {

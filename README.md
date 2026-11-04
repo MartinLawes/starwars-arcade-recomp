@@ -48,15 +48,33 @@ config folder under `starwars/`.
 | Right click / X / Alt | Fire 2 |
 | C, V / middle click | Thumb buttons |
 | 5 or 6 | Coin |
+| Esc / Tab | Settings menu (pauses the game) |
 | I | Invert yoke Y (flight-stick style) |
 | F2 | Look: vector monitor / clean lines |
 | F3 | FPS overlay |
 | F11 / Alt+Enter | Full screen |
 | F1 (hold) | Test switch (service menu) |
-| Esc | Quit |
 
 **Gamepad:** left stick or D-pad = yoke, A / right trigger = fire, B / left trigger = fire 2, X / Y = thumb
-buttons, Start = fire/start, Select = coin, hold Select + Start for a second to quit.
+buttons, Start = fire/start, Select = coin, right bumper = settings menu, hold Select + Start for a second to quit.
+
+## Settings menu
+
+Esc, Tab or the right bumper opens it; the game pauses. Arrows / D-pad move and change values, Enter / A
+selects, Esc / B closes. The menu is drawn by the vector renderer in a built-in stroke font.
+
+| Setting | Range | What it does |
+|---|---|---|
+| Look | Vector monitor / Clean lines / Custom | Presets for the settings below |
+| Brightness | 10-200% | Beam energy |
+| Glow | Off-200% | Bloom halo around lines |
+| Phosphor trails | Off-300% | Persistence: how long moving objects leave a trail |
+| Beam dwell | Off-200% | Extra brightness at line ends and dots |
+| Beam width | 50-200% | Thickness of the beam |
+| Invert Y | On / Off | Flight-stick style yoke |
+| Full screen | On / Off | |
+
+Saved to `settings.json` in the user config folder (`%AppData%\starwars` on Windows, `~/.config/starwars` on Linux).
 
 ## Status
 

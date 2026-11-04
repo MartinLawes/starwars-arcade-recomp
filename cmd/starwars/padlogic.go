@@ -11,6 +11,7 @@ type padTracker struct {
 	prevView  bool
 	prevLB    bool
 	connected bool
+	prevEdges padEdges
 }
 
 // buttons is called once per frame. Select is a coin when it is let go; Start
