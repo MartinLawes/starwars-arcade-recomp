@@ -71,6 +71,9 @@ selects, Esc / B closes. The menu is drawn by the vector renderer in a built-in 
 | Phosphor trails | Off-300% | Persistence: how long moving objects leave a trail |
 | Beam dwell | Off-200% | Extra brightness at line ends and dots |
 | Beam width | 50-200% | Thickness of the beam |
+| Volume | Off-200% | Master volume |
+| Speech | Off-200% | TMS5220 voice (movie quotes) |
+| Effects and music | Off-200% | The four POKEYs |
 | Invert Y | On / Off | Flight-stick style yoke |
 | Full screen | On / Off | |
 
@@ -81,7 +84,9 @@ Saved to `settings.json` in the user config folder (`%AppData%\starwars` on Wind
 - Main board runs: 6809, mathbox (matrix processor, divider, real 23-bit LFSR PRNG), AVG, NVRAM, inputs.
 - Attract mode renders correctly headless: high score table, 3D STAR WARS logo, opening crawl, starfield.
 - Window + GPU vector renderer (internal/vecrender/gpu), mouse / keyboard / gamepad yoke, NVRAM saving.
-- Not yet: sound board (6809 + RIOT + 4 POKEY + TMS5220) - builds are silent for now.
+- Sound board: second 6809, 6532 RIOT, 4 x POKEY, TMS5220 speech (ports of MAME's devices), lockstep with the
+  main CPU, mixed to 48 kHz. Checked against MAME's audio output by spectrogram and level.
+- `STARWARS_NOAUDIO=1` runs without an audio device.
 
 ## Tools so far
 
@@ -110,6 +115,11 @@ Publishing a GitHub release runs `.github/workflows/release.yml`: `starwars.exe`
 | `internal/board` | Main board wiring |
 | `internal/vecrender` | Vector monitor renderer (soft.go = CPU reference / spec for the GPU shaders) |
 | `internal/vecrender/gpu` | Real-time Ebitengine renderer (Kage shaders) |
+| `internal/sound` | Sound board: CPU, latches, mixer |
+| `internal/riot` | 6532 RIOT |
+| `internal/pokey` | POKEY |
+| `internal/tms5220` | TMS5220 speech synthesizer |
+| `cmd/wav` | Headless audio capture to WAV (`SPEECH_ONLY=1` for the voice alone) |
 | `cmd/starwars` | The game |
 | `cmd/shot` | Headless PNG snapshots |
 | `cmd/boot` | Boot probe with stubbed hardware |

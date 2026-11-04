@@ -44,6 +44,9 @@ type game struct {
 	lastMY   int
 	mouseOn  bool
 
+	audio   *audioOut
+	samples []float32
+
 	showFPS bool
 	ticks   int
 
@@ -100,6 +103,8 @@ func main() {
 		panic(err)
 	}
 	g.buildMenu()
+	g.audio = newAudio()
+	g.applySettings()
 	ebiten.SetWindowTitle("Star Wars")
 	ebiten.SetWindowSize(winSize())
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
@@ -173,6 +178,7 @@ func (g *game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyTab) || ps.menuEdge {
 		g.menu.open = true
 		g.menu.sel = 0
+		g.audio.clear()
 		return nil
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF2) {
@@ -251,6 +257,8 @@ func (g *game) Update() error {
 	in.Service = k(ebiten.Key9)
 
 	g.b.RunCycles(board.CPUHz / tps)
+	g.samples = g.b.Snd.TakeSamples(g.samples[:0])
+	g.audio.push(g.samples)
 
 	if g.b.NVDirty {
 		g.nvTimer++

@@ -7,6 +7,7 @@ import (
 	"starwars/internal/avg"
 	"starwars/internal/m6809"
 	"starwars/internal/mathbox"
+	"starwars/internal/sound"
 )
 
 // Timing, in main CPU cycles (1.512 MHz).
@@ -43,14 +44,9 @@ type Board struct {
 	adcChan  int
 	adcValue byte
 
-	// Sound board interface. Until the sound board exists, SoundIn holds
-	// commands from the main CPU and nothing answers.
-	SoundLatch     byte
-	SoundPending   bool
-	MainLatch      byte
-	MainPending    bool
-	SoundWrite     func(v byte) // optional hook for the sound board
-	SoundResetHook func()
+	// Sound board and the two latches between the boards.
+	L   sound.Latches
+	Snd *sound.Board
 
 	nextIRQ uint64
 	nextAVG uint64
@@ -62,6 +58,7 @@ func New(r *assets.ROMs) *Board {
 	b.Math = mathbox.New(r.Math[:])
 	b.AVG = avg.New(r.AVGProm[:], b.avgRead)
 	b.CPU = &m6809.CPU{Bus: b}
+	b.Snd = sound.New(&r.Sound, &b.L)
 	b.In.YokeX, b.In.YokeY = 128, 128
 	return b
 }
@@ -71,6 +68,8 @@ func (b *Board) Reset() {
 	b.Math.Reset()
 	b.AVG.Reset()
 	b.CPU.Reset()
+	b.Snd.CPU.Cycles = b.CPU.Cycles
+	b.Snd.Reset()
 	b.nextIRQ = b.CPU.Cycles + IRQCycles
 	b.nextAVG = b.CPU.Cycles + avgSlice
 }
@@ -121,14 +120,16 @@ func (b *Board) Read(a uint16) byte {
 	case a < 0x43a0:
 		return b.adcValue
 	case a == 0x4400:
-		b.MainPending = false
-		return b.MainLatch
+		b.Snd.RunTo(now)
+		b.L.ToMainFull = false
+		return b.L.ToMain
 	case a == 0x4401:
+		b.Snd.RunTo(now)
 		var v byte
-		if b.SoundPending {
+		if b.L.ToSoundFull {
 			v |= 0x80
 		}
-		if b.MainPending {
+		if b.L.ToMainFull {
 			v |= 0x40
 		}
 		return v
@@ -165,13 +166,10 @@ func (b *Board) Write(a uint16, v byte) {
 		}
 		b.RAM[a] = v
 	case a == 0x4400:
-		b.SoundLatch = v
-		b.SoundPending = true
-		if b.SoundWrite != nil {
-			b.SoundWrite(v)
-		} else {
-			b.SoundPending = false // no sound board yet: command "taken" at once
-		}
+		b.Snd.RunTo(now)
+		b.L.ToSound = v
+		b.L.ToSoundFull = true
+		b.Snd.LatchChanged()
 	case a >= 0x4500 && a < 0x4600:
 		if b.NVRAM[a&0xff] != v&0x0f {
 			b.NVDirty = true
@@ -210,11 +208,11 @@ func (b *Board) Write(a uint16, v byte) {
 			b.adcValue = 0
 		}
 	case a == 0x46e0:
-		b.SoundPending = false
-		b.MainPending = false
-		if b.SoundResetHook != nil {
-			b.SoundResetHook()
-		}
+		b.Snd.RunTo(now)
+		b.L.ToSoundFull = false
+		b.L.ToMainFull = false
+		b.Snd.Reset()
+		b.Snd.LatchChanged()
 	case a >= 0x4700 && a < 0x4708:
 		b.Math.Write(int(a&7), v, now)
 	case a >= 0x4800 && a < 0x5000:
@@ -231,6 +229,7 @@ func (b *Board) RunCycles(n uint64) {
 	for b.CPU.Cycles < end {
 		b.CPU.Step()
 		now := b.CPU.Cycles
+		b.Snd.RunTo(now)
 		if now >= b.nextIRQ {
 			b.CPU.IRQ = true
 			b.nextIRQ += IRQCycles

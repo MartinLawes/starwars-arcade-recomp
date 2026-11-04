@@ -21,12 +21,15 @@ type Settings struct {
 	Trails     int  `json:"trails"`     // phosphor persistence, 0 (off)..300
 	Dwell      int  `json:"dwell"`      // extra brightness at line ends and dots, 0 (off)..200
 	Width      int  `json:"width"`      // beam width, 50..200
+	Volume     int  `json:"volume"`     // master, 0 (off)..200
+	Speech     int  `json:"speech"`     // TMS5220 voice, 0 (off)..200
+	Effects    int  `json:"effects"`    // POKEY effects and music, 0 (off)..200
 	InvertY    bool `json:"invert_y"`
 	Fullscreen bool `json:"fullscreen"`
 }
 
 func defaultSettings() Settings {
-	return Settings{Brightness: 100, Glow: 100, Trails: 100, Dwell: 100, Width: 100}
+	return Settings{Brightness: 100, Glow: 100, Trails: 100, Dwell: 100, Width: 100, Volume: 100, Speech: 100, Effects: 100}
 }
 
 // cleanSettings is the sharp-lines look: no glow, no trails, light dwell.
@@ -71,6 +74,9 @@ func (s *Settings) clamp() {
 	c(&s.Trails, 0, 300)
 	c(&s.Dwell, 0, 200)
 	c(&s.Width, 50, 200)
+	c(&s.Volume, 0, 200)
+	c(&s.Speech, 0, 200)
+	c(&s.Effects, 0, 200)
 }
 
 func settingsPath() string {
@@ -83,10 +89,15 @@ func settingsPath() string {
 
 func loadSettings() Settings {
 	s := defaultSettings()
+	s.Volume, s.Speech, s.Effects = -1, -1, -1 // detect files saved before sound existed
 	if p := settingsPath(); p != "" {
 		if b, err := os.ReadFile(p); err == nil {
 			json.Unmarshal(b, &s)
 		}
+	}
+	d := defaultSettings()
+	if s.Volume < 0 {
+		s.Volume, s.Speech, s.Effects = d.Volume, d.Speech, d.Effects
 	}
 	s.clamp()
 	return s
@@ -139,6 +150,9 @@ func (g *game) buildMenu() {
 		{name: "PHOSPHOR TRAILS", kind: kLevel, val: &s.Trails, min: 0, max: 300},
 		{name: "BEAM DWELL", kind: kLevel, val: &s.Dwell, min: 0, max: 200},
 		{name: "BEAM WIDTH", kind: kLevel, val: &s.Width, min: 50, max: 200},
+		{name: "VOLUME", kind: kLevel, val: &s.Volume, min: 0, max: 200},
+		{name: "SPEECH", kind: kLevel, val: &s.Speech, min: 0, max: 200},
+		{name: "EFFECTS AND MUSIC", kind: kLevel, val: &s.Effects, min: 0, max: 200},
 		{name: "INVERT Y", kind: kToggle, on: &s.InvertY},
 		{name: "FULL SCREEN", kind: kToggle, on: &s.Fullscreen},
 		{name: "RESET TO DEFAULTS", kind: kAction, act: func(g *game) {
@@ -152,19 +166,27 @@ func (g *game) buildMenu() {
 
 // cycleLook steps VECTOR MONITOR -> CLEAN LINES -> VECTOR MONITOR.
 func (g *game) cycleLook() {
-	b, inv, fs := g.set.Brightness, g.set.InvertY, g.set.Fullscreen
+	keep := g.set
 	if g.set.look() == "VECTOR MONITOR" {
 		g.set = cleanSettings(defaultSettings())
 	} else {
 		g.set = defaultSettings()
 	}
-	g.set.Brightness, g.set.InvertY, g.set.Fullscreen = b, inv, fs
+	g.set.Brightness, g.set.InvertY, g.set.Fullscreen = keep.Brightness, keep.InvertY, keep.Fullscreen
+	g.set.Volume, g.set.Speech, g.set.Effects = keep.Volume, keep.Speech, keep.Effects
 }
 
 // applySettings pushes settings into the renderer and window, and saves.
 func (g *game) applySettings() {
 	g.set.clamp()
 	g.gpu.P = g.set.Params()
+	if g.audio != nil {
+		g.audio.setVolume(float32(g.set.Volume) / 100)
+	}
+	if g.b != nil {
+		g.b.Snd.SpeechGain = float32(g.set.Speech) / 100
+		g.b.Snd.SFXGain = float32(g.set.Effects) / 100
+	}
 	if ebiten.IsFullscreen() != g.set.Fullscreen {
 		ebiten.SetFullscreen(g.set.Fullscreen)
 	}
@@ -248,8 +270,8 @@ func (g *game) menuInput(ps padState) {
 
 // menuStrokes draws the menu (in tube pixels gw x gh).
 func (g *game) menuStrokes(out []gpu.Stroke, gw, gh float32) []gpu.Stroke {
-	h := gh / 34 // glyph height
-	lineH := h * 1.9
+	h := gh / 38 // glyph height
+	lineH := h * 1.75
 	title := "SETTINGS"
 	y := gh*0.5 - lineH*float32(len(g.menu.items)+2)/2
 	out = vecText(out, title, (gw-textWidth(title, h*1.4))/2, y, h*1.4, 1, 0.15, 0.1)
