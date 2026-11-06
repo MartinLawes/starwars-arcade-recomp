@@ -62,15 +62,55 @@ func romSearch() []string {
 	if len(os.Args) > 1 {
 		p = append(p, os.Args[1])
 	}
-	if exe, err := os.Executable(); err == nil {
-		d := filepath.Dir(exe)
+	inDir := func(d string) {
 		p = append(p, filepath.Join(d, "starwars.zip"), filepath.Join(d, "roms", "starwars.zip"), filepath.Join(d, "roms"))
 	}
+	if exe, err := os.Executable(); err == nil {
+		if r, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = r
+		}
+		d := filepath.Dir(exe)
+		inDir(d)
+		// Inside a macOS bundle the executable lives in X.app/Contents/MacOS,
+		// so "next to this program" means beside X.app, or in Contents/Resources.
+		if app := appBundle(d); app != "" {
+			inDir(filepath.Join(app, "Contents", "Resources"))
+			inDir(filepath.Dir(app))
+		}
+	}
 	p = append(p, "starwars.zip", filepath.Join("roms", "starwars.zip"))
+	if cfg, err := os.UserConfigDir(); err == nil {
+		inDir(filepath.Join(cfg, "starwars"))
+	}
 	if h, err := os.UserHomeDir(); err == nil {
 		p = append(p, filepath.Join(h, "starwars.zip"))
 	}
 	return p
+}
+
+// appBundle returns the X.app directory when dir is X.app/Contents/MacOS, else "".
+func appBundle(dir string) string {
+	contents := filepath.Dir(dir)
+	app := filepath.Dir(contents)
+	if filepath.Base(dir) == "MacOS" && filepath.Base(contents) == "Contents" && strings.HasSuffix(app, ".app") {
+		return app
+	}
+	return ""
+}
+
+// romHint says where to put starwars.zip, in terms that make sense on this platform.
+func romHint() string {
+	hint := "next to this program"
+	if exe, err := os.Executable(); err == nil && appBundle(filepath.Dir(exe)) != "" {
+		hint = "next to the .app"
+	}
+	if cfg, err := os.UserConfigDir(); err == nil {
+		hint += ",\nin " + filepath.Join(cfg, "starwars")
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		hint += ",\nor in " + h
+	}
+	return hint
 }
 
 func main() {
@@ -79,7 +119,7 @@ func main() {
 	if err != nil {
 		var me *assets.MissingError
 		if errors.As(err, &me) {
-			g.err = "Star Wars ROMs not found or incomplete.\n\nPut your starwars.zip (MAME 'starwars' set) next to this program.\n\nMissing:\n  " +
+			g.err = "Star Wars ROMs not found or incomplete.\n\nPut your starwars.zip (MAME 'starwars' set)\n" + romHint() + ".\n\nMissing:\n  " +
 				strings.Join(me.Missing, "\n  ")
 		} else {
 			g.err = err.Error()

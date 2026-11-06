@@ -35,7 +35,8 @@ Verified set (all 13 present and good):
 ## Running
 
 Put `starwars.zip` next to `starwars.exe` (or in a `roms` folder, the working directory, your home folder, or
-pass its path as the first argument). High scores and settings (the game's NVRAM) are saved in your user
+pass its path as the first argument). On macOS put it next to the `.app`, in the bundle's `Contents/Resources`,
+in `~/Library/Application Support/starwars/`, or in your home folder. High scores and settings (the game's NVRAM) are saved in your user
 config folder under `starwars/`.
 
 ## Controls
