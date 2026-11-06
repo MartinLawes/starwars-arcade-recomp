@@ -1,6 +1,6 @@
 # Star Wars (Atari, 1983) - native port
 
-Repo: darkuni/starwars-arcade-recomp
+Repo: MartinLawes/starwars-arcade-recomp
 
 Atari's 1983 Star Wars cockpit/upright as a native Go + Ebitengine program, same pipeline as Zoo Keeper:
 the whole board ported to Go (two 6809s, AVG vector generator, mathbox, 4x POKEY, TMS5220 speech, 6532 RIOT,
