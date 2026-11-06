@@ -1,8 +1,11 @@
 name: release
-# Publish a GitHub release (Releases > Draft a new release > Publish) and this
-# workflow builds Windows + macOS + Linux and attaches them to it.
+# Push a tag like v1.0 (git tag v1.0 && git push origin v1.0) and this workflow
+# builds Windows + macOS + Linux, creates the GitHub release for that tag and
+# attaches the builds. Publishing a release by hand in the UI works too.
 # Run manually (Actions > release > Run workflow) to just get the builds as artifacts.
 on:
+  push:
+    tags: ['v*']
   release:
     types: [published]
   workflow_dispatch:
@@ -74,13 +77,18 @@ jobs:
         with: {name: starwars-linux, path: StarWars-linux.tar.gz}
 
   publish:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
     needs: [windows, mac, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with: {path: out, merge-multiple: true}
-      - name: Attach to release
+      - name: Create release (if needed) and attach builds
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" out/starwars.exe out/StarWars-mac.zip out/StarWars-linux.tar.gz --clobber --repo "${{ github.repository }}"
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$REPO" --title "Star Wars $TAG" --generate-notes --verify-tag
+          gh release upload "$TAG" out/starwars.exe out/StarWars-mac.zip out/StarWars-linux.tar.gz --clobber --repo "$REPO"
